@@ -15,7 +15,7 @@ import zmq
 from zmq.eventloop import ioloop
 from zmq.eventloop.future import Context
 
-from traitlets import Dict
+from traitlets import Dict, Unicode
 
 from jupyter_client import KernelManager
 from ipykernel.kernelbase import Kernel
@@ -25,6 +25,20 @@ from IPython.core.usage import default_banner
 
 __version__ = "0.0.0.dev"
 
+
+from there import print
+
+
+class SWKM(KernelManager):
+    def format_kernel_cmd(self, *args, **kwargs):
+        print(f"{args},{kwargs}")
+        res = super().format_kernel_cmd(*args, **kwargs)
+        print(f"{res=}")
+        assert isinstance(res, list), res
+        res = ["ipykernel" if x == "allthekernels" else x for x in res]
+
+        assert "allthekernels" not in res
+        return res
 
 class KernelProxy(object):
     """A proxy for a single kernel
@@ -58,21 +72,24 @@ class Proxy(Kernel):
 
     banner = default_banner
 
-    kernels = Dict()
     default_kernel = os.environ.get('ATK_DEFAULT_KERNEL') or 'python%i' % (sys.version_info[0])
     _atk_parent = None
+    target = Unicode("wuup", config=True)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
         self.future_context = ctx = Context()
         self.iosub = ctx.socket(zmq.SUB)
         self.iosub.subscribe = b''
         self.shell_stream = self.shell_streams[0]
+        self.kernel = None
 
     def start(self):
         super().start()
         loop = IOLoop.current()
         loop.add_callback(self.relay_iopub_messages)
+        self.get_kernel("atk")
 
     async def relay_iopub_messages(self):
         """Coroutine for relaying IOPub messages from all of our kernels"""
@@ -82,31 +99,34 @@ class Proxy(Kernel):
 
     def start_kernel(self, name):
         """Start a new kernel"""
+        assert name == "atk"
         base, ext = os.path.splitext(self.parent.connection_file)
         cf = '{base}-{name}{ext}'.format(
             base=base,
             name=name,
             ext=ext,
         )
-        print(cf)
-        manager = KernelManager(
+        self_name = self.target.split("/")[-2]
+        print(f"self is: ", self_name)
+        print(f"{cf=}")
+        manager = SWKM(
             kernel_name=name,
             session=self.session,
             context=self.future_context,
             connection_file=cf,
         )
+        print(f"{manager.kernel_cmd}")
+        print(f"{manager.kernel_spec}")
         manager.start_kernel()
-        self.kernels[name] = kernel = KernelProxy(
-            manager=manager,
-            shell_upstream=self.shell_stream)
-        self.iosub.connect(kernel.iopub_url)
-        return self.kernels[name]
+        self.kernel = KernelProxy(manager=manager, shell_upstream=self.shell_stream)
+        self.iosub.connect(self.kernel.iopub_url)
+        return [self.kernel]
 
     def get_kernel(self, name):
         """Get a kernel, start it if it doesn't exist"""
-        if name not in self.kernels:
-            self.start_kernel(name)
-        return self.kernels[name]
+        if self.kernel is None:
+            self.start_kernel("atk")
+        return self.kernel
 
     def set_parent(self, ident, parent):
         # record the parent message
@@ -157,7 +177,8 @@ class Proxy(Kernel):
         content = parent['content']
         cell = content['code']
         kernel_name, cell = self.split_cell(cell)
-        content['code'] = cell
+        content["code"] = cell
+        kernel_name = "atk"
         kernel = self.get_kernel(kernel_name)
         self.log.debug("Relaying %s to %s", parent['header']['msg_type'], kernel_name)
         self.session.send(kernel.shell, parent, ident=ident)
@@ -167,9 +188,7 @@ class Proxy(Kernel):
     complete_request = relay_to_kernel
 
     def do_shutdown(self, restart):
-        print("shutdown recieved, with restart =", restart)
-        for kernel in self.kernels.values():
-            kernel.manager.shutdown_kernel(False, restart)
+        self.kernel.manager.shutdown_kernel(False, restart)
         return super().do_shutdown(restart)
 
 
