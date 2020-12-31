@@ -37,11 +37,13 @@ class SwapArgKernelManager(KernelManager):
     Indeed the original kernelspec will start us, and we will read it to start ipykernel, so we need to swap
     -m <us>, for -m ipykernel
     """
+
     def format_kernel_cmd(self, *args, **kwargs):
         res = super().format_kernel_cmd(*args, **kwargs)
         res = ["ipykernel" if x == NAME else x for x in res]
         assert NAME not in res
         return res
+
 
 class KernelProxy(object):
     """A proxy for a single kernel
@@ -49,11 +51,12 @@ class KernelProxy(object):
 
     Hooks up relay of messages on the shell channel.
     """
+
     def __init__(self, manager, shell_upstream):
         self.manager = manager
         self.shell = self.manager.connect_shell()
         self.shell_upstream = shell_upstream
-        self.iopub_url = self.manager._make_url('iopub')
+        self.iopub_url = self.manager._make_url("iopub")
         IOLoop.current().add_callback(self.relay_shell)
 
     async def relay_shell(self):
@@ -75,7 +78,9 @@ class Proxy(Kernel):
 
     banner = default_banner
 
-    default_kernel = os.environ.get('ATK_DEFAULT_KERNEL') or 'python%i' % (sys.version_info[0])
+    default_kernel = os.environ.get("ATK_DEFAULT_KERNEL") or "python%i" % (
+        sys.version_info[0]
+    )
     _ipr_parent = None
     target = Unicode("wuup", config=True)
 
@@ -84,7 +89,7 @@ class Proxy(Kernel):
 
         self.future_context = ctx = Context()
         self.iosub = ctx.socket(zmq.SUB)
-        self.iosub.subscribe = b''
+        self.iosub.subscribe = b""
         self.shell_stream = self.shell_streams[0]
         self.kernel = None
 
@@ -103,7 +108,7 @@ class Proxy(Kernel):
     def start_kernel(self):
         """Start a new kernel"""
         base, ext = os.path.splitext(self.parent.connection_file)
-        cf = '{base}-{name}{ext}'.format(
+        cf = "{base}-{name}{ext}".format(
             base=base,
             name=name,
             ext=ext,
@@ -136,15 +141,15 @@ class Proxy(Kernel):
 
         If no kernel name is specified, use the default kernel.
         """
-        if not cell.startswith('>'):
+        if not cell.startswith(">"):
             # no kernel magic, use default kernel
             return self.default_kernel, cell
-        split = cell.split('\n', 1)
+        split = cell.split("\n", 1)
         if len(split) == 2:
             first_line, cell = split
         else:
             first_line = cell
-            cell = ''
+            cell = ""
         kernel_name = first_line[1:].strip()
         if kernel_name[0] == "!":
             # >!kernelname sets it as the new default
