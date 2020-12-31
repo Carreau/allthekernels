@@ -1,10 +1,10 @@
-# All the Kernels!
+# In Place restarter
 
-A Jupyter kernel that multiplexes all the kernels you have installed.
+A Jupyter kernel proxy which can be useful for inplace restart.
 
-Specify which kernel a cell should use with `>kernelname`.
-If no kernel is specified, IPython will be used.
+In hpc system for example you might not want to go back through the scheduler. 
+it might be useful to restart in place. 
 
-![atk](img/allthekernels.png)
-
-([All the things source](http://hyperboleandahalf.blogspot.no/2010/06/this-is-why-ill-never-be-adult.html))
+This install a proxy kernel which will forward all the messages to the
+underlying kernel, but intercept the `%restart` magic to kill and restart the
+underlying kernel.
