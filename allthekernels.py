@@ -1,6 +1,9 @@
-"""All the Kernels: all your kernels in one kernel.
+"""A Kernel Proxy to restart your kernels in place.
 
-Like magic!
+use the %restart magic.
+
+
+Adapted from MinRK's all the kernels.
 """
 
 import os
@@ -10,45 +13,17 @@ from tornado.ioloop import IOLoop
 
 import zmq
 from zmq.eventloop import ioloop
-ioloop.install()
 from zmq.eventloop.future import Context
 
 from traitlets import Dict
 
 from jupyter_client import KernelManager
 from ipykernel.kernelbase import Kernel
-from ipykernel.kernelapp import IPKernelApp
+from ipykernel.kernelapp import IPKernelApp, IPythonKernel
 
+from IPython.core.usage import default_banner
 
-banner = """\
-All The Kernels: A single Jupyter kernel that multiplexes.
-
-Per default, all cells will be executed in the default python kernel. If the
-first line of a cell starts with `>`, the line will be parsed as kernel name and
-the rest of the cell will be executed in that kernel.
-
-For instance,
-
-    >python2
-    def foo():
-        ...
-
-will run the cell in a Python 2 kernel, and
-
-    >julia-0.4
-
-will run in Julia 0.4, etc.
-
-You can also set a new default kernel by prefixing the kernel name with `!`:
-
-    >!ir
-
-In this case the current cell and all further cells without a kernel name will
-be executed in an R kernel.
-"""
-
-
-__version__ = '1.2.0.dev'
+__version__ = "0.0.0.dev"
 
 
 class KernelProxy(object):
@@ -71,15 +46,17 @@ class KernelProxy(object):
             self.shell_upstream.send_multipart(msg)
 
 
-class AllTheKernels(Kernel):
+class Proxy(Kernel):
     """Kernel class for proxying ALL THE KERNELS YOU HAVE"""
-    implementation = 'AllTheKernels'
+
+    implementation = "IPython Kernel Restarter"
     implementation_version = __version__
     language_info = {
-        'name': 'all-of-them',
-        'mimetype': 'text/plain',
+        "name": "Python",
+        "mimetype": "text/python",
     }
-    banner = banner
+
+    banner = default_banner
 
     kernels = Dict()
     default_kernel = os.environ.get('ATK_DEFAULT_KERNEL') or 'python%i' % (sys.version_info[0])
@@ -111,6 +88,7 @@ class AllTheKernels(Kernel):
             name=name,
             ext=ext,
         )
+        print(cf)
         manager = KernelManager(
             kernel_name=name,
             session=self.session,
@@ -189,23 +167,27 @@ class AllTheKernels(Kernel):
     complete_request = relay_to_kernel
 
     def do_shutdown(self, restart):
+        print("shutdown recieved, with restart =", restart)
         for kernel in self.kernels.values():
             kernel.manager.shutdown_kernel(False, restart)
         return super().do_shutdown(restart)
 
 
-class AllTheKernelsApp(IPKernelApp):
+class RestarterApp(IPKernelApp):
 
-    kernel_class = AllTheKernels
+    kernel_class = Proxy
     # disable IO capture
     outstream_class = None
 
     def _log_level_default(self):
-        return 10
+        return 0
 
 
-main = AllTheKernelsApp.launch_instance
+def main():
+    atk = RestarterApp.launch_instance()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    print("Hello Hello")
     main()
+    print("bye !")
