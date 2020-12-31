@@ -23,21 +23,24 @@ from ipykernel.kernelapp import IPKernelApp, IPythonKernel
 
 from IPython.core.usage import default_banner
 
-__version__ = "0.0.0.dev"
+__version__ = "0.0.1.dev"
 
+NAME = "inplace_restarter"
 
 from there import print
 
 
-class SWKM(KernelManager):
-    def format_kernel_cmd(self, *args, **kwargs):
-        print(f"{args},{kwargs}")
-        res = super().format_kernel_cmd(*args, **kwargs)
-        print(f"{res=}")
-        assert isinstance(res, list), res
-        res = ["ipykernel" if x == "allthekernels" else x for x in res]
+class SwapArgKernelManager(KernelManager):
+    """
+    Kernel manager that rewrite the start command to avoid recursion.
 
-        assert "allthekernels" not in res
+    Indeed the original kernelspec will start us, and we will read it to start ipykernel, so we need to swap
+    -m <us>, for -m ipykernel
+    """
+    def format_kernel_cmd(self, *args, **kwargs):
+        res = super().format_kernel_cmd(*args, **kwargs)
+        res = ["ipykernel" if x == NAME else x for x in res]
+        assert NAME not in res
         return res
 
 class KernelProxy(object):
@@ -73,7 +76,7 @@ class Proxy(Kernel):
     banner = default_banner
 
     default_kernel = os.environ.get('ATK_DEFAULT_KERNEL') or 'python%i' % (sys.version_info[0])
-    _atk_parent = None
+    _ipr_parent = None
     target = Unicode("wuup", config=True)
 
     def __init__(self, *args, **kwargs):
@@ -89,7 +92,7 @@ class Proxy(Kernel):
         super().start()
         loop = IOLoop.current()
         loop.add_callback(self.relay_iopub_messages)
-        self.get_kernel("atk")
+        self.start_kernel()
 
     async def relay_iopub_messages(self):
         """Coroutine for relaying IOPub messages from all of our kernels"""
@@ -97,9 +100,8 @@ class Proxy(Kernel):
             msg = await self.iosub.recv_multipart()
             self.iopub_socket.send_multipart(msg)
 
-    def start_kernel(self, name):
+    def start_kernel(self):
         """Start a new kernel"""
-        assert name == "atk"
         base, ext = os.path.splitext(self.parent.connection_file)
         cf = '{base}-{name}{ext}'.format(
             base=base,
@@ -107,16 +109,12 @@ class Proxy(Kernel):
             ext=ext,
         )
         self_name = self.target.split("/")[-2]
-        print(f"self is: ", self_name)
-        print(f"{cf=}")
-        manager = SWKM(
+        manager = SwapArgKernelManager(
             kernel_name=name,
             session=self.session,
             context=self.future_context,
             connection_file=cf,
         )
-        print(f"{manager.kernel_cmd}")
-        print(f"{manager.kernel_spec}")
         manager.start_kernel()
         self.kernel = KernelProxy(manager=manager, shell_upstream=self.shell_stream)
         self.iosub.connect(self.kernel.iopub_url)
@@ -125,12 +123,12 @@ class Proxy(Kernel):
     def get_kernel(self, name):
         """Get a kernel, start it if it doesn't exist"""
         if self.kernel is None:
-            self.start_kernel("atk")
+            self.start_kernel()
         return self.kernel
 
     def set_parent(self, ident, parent):
         # record the parent message
-        self._atk_parent = parent
+        self._ipr_parent = parent
         return super().set_parent(ident, parent)
 
     def split_cell(self, cell):
@@ -159,8 +157,10 @@ class Proxy(Kernel):
 
         Status messages will be relayed from the actual kernels.
         """
-        if self._atk_parent and self._atk_parent['header']['msg_type'] in {
-            'execute_request', 'inspect_request', 'complete_request'
+        if self._ipr_parent and self._ipr_parent["header"]["msg_type"] in {
+            "execute_request",
+            "inspect_request",
+            "complete_request",
         }:
             self.log.debug("suppressing %s status message.", status)
             return
@@ -194,8 +194,7 @@ class Proxy(Kernel):
         then relays the request.
         """
 
-        kernel_name = "atk"
-        kernel = self.get_kernel(kernel_name)
+        kernel = self.get_kernel()
         self.log.debug("Relaying %s to %s", parent["header"]["msg_type"], kernel_name)
         self.session.send(kernel.shell, parent, ident=ident)
 
@@ -219,10 +218,8 @@ class RestarterApp(IPKernelApp):
 
 
 def main():
-    atk = RestarterApp.launch_instance()
+    RestarterApp.launch_instance()
 
 
 if __name__ == "__main__":
-    print("Hello Hello")
     main()
-    print("bye !")
