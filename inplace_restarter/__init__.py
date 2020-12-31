@@ -18,6 +18,7 @@ from zmq.eventloop.future import Context
 from traitlets import Dict, Unicode
 
 from jupyter_client import KernelManager
+from jupyter_client.kernelspec import find_kernel_specs
 from ipykernel.kernelbase import Kernel
 from ipykernel.kernelapp import IPKernelApp, IPythonKernel
 
@@ -26,8 +27,6 @@ from IPython.core.usage import default_banner
 __version__ = "0.0.1.dev"
 
 NAME = "inplace_restarter"
-
-from there import print
 
 
 class SwapArgKernelManager(KernelManager):
@@ -89,6 +88,10 @@ class Proxy(Kernel):
         self.iosub.subscribe = b""
         self.shell_stream = self.shell_streams[0]
         self.kernel = None
+        if self.target is None:
+            raise ValueError(
+                "--Proxy.target is required when starting with inplace_restarter"
+            )
 
     def start(self):
         super().start()
@@ -200,8 +203,96 @@ class RestarterApp(IPKernelApp):
         return 0
 
 
+from pathlib import Path
+
+DEFAULT_COMMAND = ["-m", "ipykernel_launcher", "-f", "{connection_file}"]
+RESTARTER_COMMAND = ["-m", "inplace_restarter", "-f", "{connection_file}"]
+
+import json
+
+
+def list_target(specs):
+    m = {"Installed": [], "Installable": [], "Unknown": []}
+    for name, path in specs.items():
+        name = repr(name)
+        path = Path(path) / "kernel.json"
+        data = json.loads(path.read_text())
+
+        argv = data["argv"]
+
+        if argv[1:5] == DEFAULT_COMMAND:
+            m["Installable"].append(name)
+        elif argv[1:5] == RESTARTER_COMMAND:
+            m["Installed"].append(name)
+        else:
+            m["Unknown"].append(name)
+    if m["Installed"]:
+        print("In place restarting installed on:")
+        for kernel in m["Installed"]:
+            print(f"  ✓ {kernel}")
+        print("")
+        print("Use:python -m inplace_restarter remove [name,[name...]] to remove")
+        print("")
+    if m["Installable"]:
+        print("In place restarting installable on:")
+        for kernel in m["Installable"]:
+            print(f"  - {kernel}")
+        print("")
+        print("Use:python -m inplace_restarter install [name,[name...]] to install")
+        print("")
+    if m["Unknown"]:
+        print("Unknown kernel types, does not know how to install:")
+        for kernel in m["Unknown"]:
+            print(f"  ✘ {kernel}")
+        print("")
+
+    # print(" :", name)
+    # print("✓:", name)
+    # print("✘:", name)
+
+
+def install_on(name, specs):
+    path = Path(specs[name]) / "kernel.json"
+    data = json.loads(path.read_text())
+    argv = data["argv"]
+    if not argv[1:5] == DEFAULT_COMMAND:
+        print("not installable on ", name)
+    else:
+        data["argv"][2] = "inplace_restarter"
+        data["argv"].append(f"--Proxy.target={path}")
+        path.write_text(json.dumps(data, indent=2))
+
+
+def remove_from(name, specs):
+    path = Path(specs[name]) / "kernel.json"
+    data = json.loads(path.read_text())
+    argv = data["argv"]
+    if not argv[1:5] == RESTARTER_COMMAND:
+        print("not installed on ", name)
+    else:
+        data["argv"][2] = "ipykernel_launcher"
+        new_argv = [a for a in data["argv"] if not a.startswith("--Proxy.target=")]
+        data["argv"] = new_argv
+        text = json.dumps(data, indent=2)
+        path.write_text(text)
+
+
 def main():
-    RestarterApp.launch_instance()
+
+    if len(sys.argv) > 1 and sys.argv[1] == "install":
+        specs = dict(find_kernel_specs().items())
+        for name in sys.argv[2:]:
+            install_on(name, specs)
+    elif len(sys.argv) > 1 and sys.argv[1] == "remove":
+        specs = dict(find_kernel_specs().items())
+        for name in sys.argv[2:]:
+            remove_from(name, specs)
+    elif len(sys.argv) > 1 and sys.argv[1] == "list":
+        specs = dict(find_kernel_specs().items())
+        list_target(specs)
+
+    else:
+        RestarterApp.launch_instance()
 
 
 if __name__ == "__main__":
