@@ -78,9 +78,6 @@ class Proxy(Kernel):
 
     banner = default_banner
 
-    default_kernel = os.environ.get("ATK_DEFAULT_KERNEL") or "python%i" % (
-        sys.version_info[0]
-    )
     _ipr_parent = None
     target = Unicode("wuup", config=True)
 
@@ -108,12 +105,10 @@ class Proxy(Kernel):
     def start_kernel(self):
         """Start a new kernel"""
         base, ext = os.path.splitext(self.parent.connection_file)
-        cf = "{base}-{name}{ext}".format(
+        cf = "{base}-restartable{ext}".format(
             base=base,
-            name=name,
             ext=ext,
         )
-        self_name = self.target.split("/")[-2]
         manager = SwapArgKernelManager(
             kernel_name=name,
             session=self.session,
@@ -135,27 +130,6 @@ class Proxy(Kernel):
         # record the parent message
         self._ipr_parent = parent
         return super().set_parent(ident, parent)
-
-    def split_cell(self, cell):
-        """Return the kernel name and remaining cell contents
-
-        If no kernel name is specified, use the default kernel.
-        """
-        if not cell.startswith(">"):
-            # no kernel magic, use default kernel
-            return self.default_kernel, cell
-        split = cell.split("\n", 1)
-        if len(split) == 2:
-            first_line, cell = split
-        else:
-            first_line = cell
-            cell = ""
-        kernel_name = first_line[1:].strip()
-        if kernel_name[0] == "!":
-            # >!kernelname sets it as the new default
-            kernel_name = kernel_name[1:].strip()
-            self.default_kernel = kernel_name
-        return kernel_name, cell
 
     def _publish_status(self, status):
         """Disabling publishing status messages for relayed
