@@ -167,28 +167,44 @@ class Proxy(Kernel):
         else:
             return super()._publish_status(status)
 
+    def intercept_kernel(self, stream, ident, parent):
+
+        content = parent["content"]
+        cell = content["code"]
+        if cell == "%restart":
+            ## ask kernel to do nothing but still send an empty reply to flush ZMQ
+            parent["content"]["code"] = ""
+            parent["content"]["silent"] = True
+
+        res = self.relay_to_kernel(stream, ident, parent)
+
+        if cell == "%restart":
+
+            self.kernel.manager.shutdown_kernel(now=False, restart=True)
+            self.kernel = None
+
+        return res
+
     def relay_to_kernel(self, stream, ident, parent):
+
         """Relay a message to a kernel
 
         Gets the `>kernel` line off of the cell,
         finds the kernel (starts it if necessary),
         then relays the request.
         """
-        content = parent['content']
-        cell = content['code']
-        kernel_name, cell = self.split_cell(cell)
-        content["code"] = cell
+
         kernel_name = "atk"
         kernel = self.get_kernel(kernel_name)
-        self.log.debug("Relaying %s to %s", parent['header']['msg_type'], kernel_name)
+        self.log.debug("Relaying %s to %s", parent["header"]["msg_type"], kernel_name)
         self.session.send(kernel.shell, parent, ident=ident)
 
-    execute_request = relay_to_kernel
+    execute_request = intercept_kernel
     inspect_request = relay_to_kernel
     complete_request = relay_to_kernel
 
     def do_shutdown(self, restart):
-        self.kernel.manager.shutdown_kernel(False, restart)
+        self.kernel.manager.shutdown_kernel(now=False, restart=restart)
         return super().do_shutdown(restart)
 
 
