@@ -110,7 +110,7 @@ class Proxy(Kernel):
             ext=ext,
         )
         manager = SwapArgKernelManager(
-            kernel_name=name,
+            kernel_name=self.target.split("/")[-2],
             session=self.session,
             context=self.future_context,
             connection_file=cf,
@@ -120,7 +120,7 @@ class Proxy(Kernel):
         self.iosub.connect(self.kernel.iopub_url)
         return [self.kernel]
 
-    def get_kernel(self, name):
+    def get_kernel(self):
         """Get a kernel, start it if it doesn't exist"""
         if self.kernel is None:
             self.start_kernel()
@@ -174,7 +174,11 @@ class Proxy(Kernel):
         """
 
         kernel = self.get_kernel()
-        self.log.debug("Relaying %s to %s", parent["header"]["msg_type"], kernel_name)
+        self.log.debug(
+            "Relaying %s to %s",
+            parent["header"]["msg_type"],
+            self.target.split("/")[-2],
+        )
         self.session.send(kernel.shell, parent, ident=ident)
 
     execute_request = intercept_kernel
